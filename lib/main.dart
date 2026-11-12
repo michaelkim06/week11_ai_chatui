@@ -1,6 +1,39 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 void main() => runApp(const ChatLabApp());
+
+enum ChatErrorType { unauthorized401, rateLimit429, server500, timeout }
+
+extension ChatErrorTypeX on ChatErrorType {
+  String get label {
+    switch (this) {
+      case ChatErrorType.unauthorized401:
+        return '401 Unauthorized';
+      case ChatErrorType.rateLimit429:
+        return '429 Too Many Requests';
+      case ChatErrorType.server500:
+        return '500 Server Error';
+      case ChatErrorType.timeout:
+        return 'Timeout';
+    }
+  }
+
+  String get message {
+    switch (this) {
+      case ChatErrorType.unauthorized401:
+        return '인증에 실패했어요. 다시 시도해 주세요.';
+      case ChatErrorType.rateLimit429:
+        return '요청이 많아요. 잠시 후 다시 시도해 주세요.';
+      case ChatErrorType.server500:
+        return '서버에 문제가 발생했어요. 다시 시도해 주세요.';
+      case ChatErrorType.timeout:
+        return '응답 시간이 초과되었어요. 다시 시도해 주세요.';
+    }
+  }
+}
 
 class ChatLabApp extends StatelessWidget {
   const ChatLabApp({super.key});
@@ -46,6 +79,11 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = <ChatMessage>[];
   final TextEditingController _controller = TextEditingController();
   bool _isThinking = false;
+  ChatErrorType? _errorType;
+  String? _pendingText;
+  int _requestCount = 0;
+  int _rateLimitRetryStage = 0;
+  final Random _random = Random();
 
   @override
   void dispose() {
@@ -58,20 +96,68 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isEmpty || _isThinking) return;
 
     setState(() {
+      _errorType = null;
+      _pendingText = null;
+      _rateLimitRetryStage = 0;
       _messages.add(ChatMessage(text: text, isUser: true));
-      _isThinking = true;
     });
     _controller.clear();
+    await _requestAiResponse(text);
+  }
 
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
+  Future<void> _retryLastMessage() async {
+    final text = _pendingText;
+    if (text == null || _isThinking) return;
+    await _requestAiResponse(text, isRetry: true);
+  }
+
+  Future<void> _requestAiResponse(String text, {bool isRetry = false}) async {
+    var delay = const Duration(milliseconds: 900);
+    if (isRetry && _errorType == ChatErrorType.rateLimit429) {
+      delay = Duration(seconds: _rateLimitRetryStage == 0 ? 1 : 2);
+    }
 
     setState(() {
-      _isThinking = false;
-      _messages.add(
-        ChatMessage(text: '"$text"에 대해 더 자세히 알려주세요.', isUser: false),
-      );
+      _errorType = null;
+      _isThinking = true;
     });
+
+    await Future<void>.delayed(delay);
+    if (!mounted) return;
+
+    final outcome = _simulateOutcome();
+    setState(() {
+      _isThinking = false;
+      if (outcome == null) {
+        _pendingText = null;
+        _rateLimitRetryStage = 0;
+        _messages.add(
+          ChatMessage(text: '"$text"에 대해 더 자세히 알려주세요.', isUser: false),
+        );
+      } else {
+        _errorType = outcome;
+        _pendingText = text;
+        if (outcome == ChatErrorType.rateLimit429) {
+          _rateLimitRetryStage = (_rateLimitRetryStage + 1).clamp(0, 1);
+        } else {
+          _rateLimitRetryStage = 0;
+        }
+      }
+    });
+  }
+
+  ChatErrorType? _simulateOutcome() {
+    _requestCount++;
+    // Demonstrate all required error states, then succeed.
+    const sequence = <ChatErrorType?>[
+      ChatErrorType.unauthorized401,
+      ChatErrorType.rateLimit429,
+      ChatErrorType.rateLimit429,
+      ChatErrorType.server500,
+      ChatErrorType.timeout,
+      null,
+    ];
+    return sequence[(_requestCount - 1) % sequence.length];
   }
 
   @override
@@ -101,12 +187,26 @@ class _ChatPageState extends State<ChatPage> {
                     child: ListView.builder(
                       reverse: true,
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      itemCount: _messages.length + (_isThinking ? 1 : 0),
+                      itemCount:
+                          _messages.length +
+                          ((_isThinking || _errorType != null) ? 1 : 0),
                       itemBuilder: (context, index) {
-                        if (_isThinking && index == 0) {
-                          return const _ThinkingBubble();
+                        final hasStatus = _isThinking || _errorType != null;
+                        if (hasStatus && index == 0) {
+                          return AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 250),
+                            child: _isThinking
+                                ? const _ThinkingBubble(
+                                    key: ValueKey('thinking'),
+                                  )
+                                : _ErrorBubble(
+                                    key: ValueKey(_errorType),
+                                    errorType: _errorType!,
+                                    onRetry: _retryLastMessage,
+                                  ),
+                          );
                         }
-                        final offset = _isThinking ? 1 : 0;
+                        final offset = hasStatus ? 1 : 0;
                         final messageIndex =
                             _messages.length - 1 - (index - offset);
                         final message = _messages[messageIndex];
@@ -156,7 +256,7 @@ class _Bubble extends StatelessWidget {
 
 /// AI가 응답을 준비 중일 때 표시하는 애니메이션 말풍선.
 class _ThinkingBubble extends StatefulWidget {
-  const _ThinkingBubble();
+  const _ThinkingBubble({super.key});
 
   @override
   State<_ThinkingBubble> createState() => _ThinkingBubbleState();
@@ -222,6 +322,63 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
               }),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// 오류 상태를 보여 주고 다시 시도를 제공하는 말풍선.
+class _ErrorBubble extends StatelessWidget {
+  const _ErrorBubble({
+    super.key,
+    required this.errorType,
+    required this.onRetry,
+  });
+
+  final ChatErrorType errorType;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(maxWidth: 420),
+        decoration: BoxDecoration(
+          color: const Color(0xFF5A2A2A),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.redAccent),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              errorType.label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              errorType.message,
+              style: const TextStyle(color: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('다시 시도'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+              ),
+            ),
+          ],
         ),
       ),
     );
