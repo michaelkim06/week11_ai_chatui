@@ -242,7 +242,7 @@ class _Bubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         constraints: const BoxConstraints(maxWidth: 420),
         decoration: BoxDecoration(
-          color: isUser ? Colors.lightGreen : Colors.lightBlueAccent,
+          color: isUser ? Colors.lightGreen : Color(0xFF87CEEB),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Text(
@@ -290,7 +290,7 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         constraints: const BoxConstraints(maxWidth: 420),
         decoration: BoxDecoration(
-          color: Colors.lightBlueAccent,
+          color: Color(0xFF87CEEB),
           borderRadius: BorderRadius.circular(14),
         ),
         child: AnimatedBuilder(
