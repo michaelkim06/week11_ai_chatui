@@ -43,9 +43,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  final List<ChatMessage> _messages = <ChatMessage>[
-    ChatMessage(text: '오늘 무엇을 도와드릴까요?', isUser: false),
-  ];
+  final List<ChatMessage> _messages = <ChatMessage>[];
   final TextEditingController _controller = TextEditingController();
   bool _isThinking = false;
 
@@ -85,11 +83,22 @@ class _ChatPageState extends State<ChatPage> {
         child: Column(
           children: [
             Expanded(
-              child: _messages.isEmpty && !_isThinking
-                  ? const Center(
-                      child: Text('무엇이든 물어보세요', style: TextStyle(fontSize: 16)),
-                    )
-                  : ListView.builder(
+              child: Column(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Text(
+                      '오늘 무엇을 도와드릴까요?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
                       reverse: true,
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       itemCount: _messages.length + (_isThinking ? 1 : 0),
@@ -104,6 +113,9 @@ class _ChatPageState extends State<ChatPage> {
                         return _Bubble(message: message);
                       },
                     ),
+                  ),
+                ],
+              ),
             ),
             _InputBar(controller: _controller, onSend: _sendMessage),
           ],
